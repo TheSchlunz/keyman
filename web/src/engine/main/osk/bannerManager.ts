@@ -27,26 +27,26 @@ namespace com.keyman.osk {
    *
    * * It will be exposed as `keyman.osk.banner` and will provide the following API:
    *   * `getOptions`, `setOptions` - refer to the `BannerOptions` class for details.
-   *   * This provides a persistent point that the web page designers and our 
+   *   * This provides a persistent point that the web page designers and our
    *     model apps can utilize and can communicate with.
-   *   * These API functions are designed for live use and will allow 
+   *   * These API functions are designed for live use and will allow
    *     _hot-swapping_ the `Banner` instance; they're not initialization-only.
-   * * Disabling the `Banner` (even for suggestions) outright with 
-   *   `enablePredictions == false` will auto-unload any loaded predictive model 
+   * * Disabling the `Banner` (even for suggestions) outright with
+   *   `enablePredictions == false` will auto-unload any loaded predictive model
    *   from `ModelManager` and setting it to `true` will revert this.
    *   * This should help to avoid wasting computational resources.
-   * * It will listen to ModelManager events and automatically swap Banner 
+   * * It will listen to ModelManager events and automatically swap Banner
    *   instances as appropriate:
-   *   * The option `persistentBanner == true` is designed to replicate current 
+   *   * The option `persistentBanner == true` is designed to replicate current
    *     iOS system keyboard behavior.
    *     * When true, an `ImageBanner` will be displayed.
-   *     * If false, it will be replaced with a `BlankBanner` of zero height, 
+   *     * If false, it will be replaced with a `BlankBanner` of zero height,
    *       corresponding to our current default lack of banner.
-   *   * It will not automatically set `persistentBanner == true`; 
+   *   * It will not automatically set `persistentBanner == true`;
    *     this must be set by the iOS app, and only under the following conditions:
    *     * `keyman.isEmbedded == true`
    *     * `device.OS == 'ios'`
-   *     * Keyman is being used as the system keyboard within an app that 
+   *     * Keyman is being used as the system keyboard within an app that
    *       needs to reserve this space (i.e: Keyman for iOS),
    *       rather than as its standalone app.
    */
@@ -72,7 +72,7 @@ namespace com.keyman.osk {
       this.constructContainer();
       this.hostDevice = hostDevice;
 
-      // Initialize with the default options - 
+      // Initialize with the default options -
       // any 'manually set' options come post-construction.
       // This will also automatically set the default banner in place.
       this.setOptions(BannerManager.DEFAULT_OPTIONS);
@@ -99,7 +99,7 @@ namespace com.keyman.osk {
 
     /**
      * This function corresponds to `keyman.osk.banner.getOptions`.
-     * 
+     *
      * Gets the current control settings in use by `BannerManager`.
      */
     public getOptions(): BannerOptions {
@@ -114,22 +114,22 @@ namespace com.keyman.osk {
 
     /**
      * This function corresponds to `keyman.osk.banner.setOptions`.
-     * 
-     * Sets options used to tweak the automatic `Banner` 
+     *
+     * Sets options used to tweak the automatic `Banner`
      * control logic used by `BannerManager`.
      * @param optionSpec An object specifying one or more of the following options:
-     * * `persistentBanner` (boolean) When `true`, ensures that a `Banner` 
-     *   is always displayed, even when no predictive model exists 
+     * * `persistentBanner` (boolean) When `true`, ensures that a `Banner`
+     *   is always displayed, even when no predictive model exists
      *   for the active language.
      *
      *   Default: `false`
-     * * `imagePath` (URL string) Specifies the file path to use for an 
+     * * `imagePath` (URL string) Specifies the file path to use for an
      *   `ImageBanner` when `persistentBanner` is `true` and no predictive model exists.
-     * 
+     *
      *   Default: `''`.
-     * * `enablePredictions` (boolean) Turns KMW predictions 
+     * * `enablePredictions` (boolean) Turns KMW predictions
      *   on (when `true`) and off (when `false`).
-     * 
+     *
      *   Default:  `true`.
      */
     public setOptions(optionSpec: BannerOptions) {
@@ -176,10 +176,10 @@ namespace com.keyman.osk {
     }
 
     /**
-     * Sets the active `Banner` to the specified type, regardless of 
+     * Sets the active `Banner` to the specified type, regardless of
      * existing management logic settings.
-     * 
-     * @param type `'blank' | 'image' | 'suggestion'` - A plain-text string 
+     *
+     * @param type `'blank' | 'image' | 'suggestion'` - A plain-text string
      *        representing the type of `Banner` to set active.
      * @param height - Optional banner height in pixels.
      */
@@ -201,7 +201,7 @@ namespace com.keyman.osk {
       }
 
       this._activeType = type;
-      
+
       if(banner) {
         this._setBanner(banner);
         banner.activate();
@@ -209,9 +209,9 @@ namespace com.keyman.osk {
     }
 
     /**
-     * Handles `LanguageProcessor`'s `'statechange'` events, 
+     * Handles `LanguageProcessor`'s `'statechange'` events,
      * allowing logic to automatically hot-swap `Banner`s as needed.
-     * @param state 
+     * @param state
      */
     selectBanner(state: text.prediction.StateChangeEnum) {
       // Only display a SuggestionBanner when LanguageProcessor states it is active.
@@ -233,7 +233,7 @@ namespace com.keyman.osk {
     }
 
     /**
-     * Internal method used by the public API `setBanner`.  `setBanner` 
+     * Internal method used by the public API `setBanner`.  `setBanner`
      * translates the string parameter into a new instance consumed by this method.
      * @param banner The `Banner` instance to set as active.
      */
@@ -287,6 +287,17 @@ namespace com.keyman.osk {
       return ParsedLengthStyle.inPixels(this.height);
     }
 
-    public refreshLayout() {};
+    public get width(): number | undefined {
+      return this.activeBanner?.width;
+    }
+
+    public set width(w: number) {
+      if(this.activeBanner) {
+        this.activeBanner.width = w;
+      }
+    }
+
+    public refreshLayout() {
+    };
   }
 }

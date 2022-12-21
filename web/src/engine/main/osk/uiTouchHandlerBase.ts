@@ -41,7 +41,9 @@ namespace com.keyman.osk {
   export abstract class UITouchHandlerBase<Target extends HTMLElement> {
     private rowClassMatch: string;
     private selectedTargetMatch: string;
+
     private baseElement: HTMLElement;
+    private scroller: HTMLElement;
 
     private touchX: number;
     private touchY: number;
@@ -52,10 +54,12 @@ namespace com.keyman.osk {
     private scrollTouchState: ScrollState;
     private pendingTarget: Target;
 
-    constructor(baseElement: HTMLElement, rowClassMatch: string, selectedTargetMatch: string) {
+    constructor(baseElement: HTMLElement, scroller: HTMLElement, rowClassMatch: string, selectedTargetMatch: string) {
       this.baseElement = baseElement;
       this.rowClassMatch = rowClassMatch;
       this.selectedTargetMatch = selectedTargetMatch;
+
+      this.scroller = scroller || null;
     }
 
     /**
@@ -239,8 +243,7 @@ namespace com.keyman.osk {
       }
 
       // Establish scroll tracking.
-      let shouldScroll = (this.currentTarget.clientWidth < this.currentTarget.scrollWidth);
-      this.scrollTouchState = shouldScroll ? new ScrollState(coord) : null;
+      this.scrollTouchState = new ScrollState(coord);
 
       // Alright, Target acquired!  Now to use it:
 
@@ -326,16 +329,19 @@ namespace com.keyman.osk {
      **/
     touchMove(coord: InputEventCoordinate) : void {
       let keyman = com.keyman.singleton;
-      let util = keyman.util;
 
       // Do not attempt to support reselection of target key for overlapped keystrokes
       if(coord.activeInputCount > 1 || this.touchCount == 0) {
         return;
       }
 
-      if(this.currentTarget && this.scrollTouchState != null) {
+      if(this.scrollTouchState != null) {
+        // TODO:  Work on smoothing this out; looks like subpixel scroll info gets rounded out,
+        // and this results in a mild desync.
         let deltaX = this.scrollTouchState.updateTo(coord).deltaX;
-        this.currentTarget.scrollLeft -= window.devicePixelRatio * deltaX;
+        if(this.scroller) {
+          this.scroller.scrollLeft -= deltaX;
+        }
 
         return;
       }

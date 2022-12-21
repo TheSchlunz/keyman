@@ -6,6 +6,7 @@ namespace com.keyman.osk {
 
   export abstract class Banner {
     private _height: number; // pixels
+    private _width: number; // pixels
     private div: HTMLDivElement;
 
     public static DEFAULT_HEIGHT: number = 37; // pixels; embedded apps can modify
@@ -33,6 +34,15 @@ namespace com.keyman.osk {
      */
     public set height(height: number) {
       this._height = (height > 0) ?  height : 0;
+      this.update();
+    }
+
+    public get width(): number {
+      return this._width;
+    }
+
+    public set width(width: number) {
+      this._width = width;
       this.update();
     }
 
@@ -82,7 +92,7 @@ namespace com.keyman.osk {
      * Function     getDiv
      * Scope        Public
      * @returns     {HTMLElement} Base element of the banner
-     * Description  Returns the HTMLElelemnt of the banner
+     * Description  Returns the HTMLElement of the banner
      */
     public getDiv(): HTMLElement {
       return this.div;
@@ -166,6 +176,7 @@ namespace com.keyman.osk {
 
   export class BannerSuggestion {
     div: HTMLDivElement;
+    container: HTMLDivElement;
     private display: HTMLSpanElement;
     private fontFamily?: string;
 
@@ -185,7 +196,8 @@ namespace com.keyman.osk {
       // Provides an empty, base SPAN for text display.  We'll swap these out regularly;
       // `Suggestion`s will have varying length and may need different styling.
       let display = this.display = keyman.util._CreateElement('span');
-      this.div.appendChild(display);
+      display.className = 'kmw-suggestion-text';
+      this.container.appendChild(display);
     }
 
     private constructRoot() {
@@ -209,13 +221,19 @@ namespace com.keyman.osk {
         }
       }
 
-      // Ensures that a reasonable width % is set.
-      let usableWidth = 100 - SuggestionBanner.MARGIN * (SuggestionBanner.SUGGESTION_LIMIT - 1);
-      let widthpc = usableWidth / SuggestionBanner.SUGGESTION_LIMIT;
-
-      ds.width = widthpc + '%';
-
       this.div['suggestion'] = this;
+
+      let container = this.container = document.createElement('div');
+      container.className = "kmw-suggestion-container";
+
+      // Ensures that a reasonable default width, based on % is set. (Since it's not yet in the DOM, we may not yet have actual width info.)
+      let usableWidth = 100 - SuggestionBanner.MARGIN * (SuggestionBanner.SUGGESTION_LIMIT - 1);
+
+      // The `/ 2` part:  Ensures that the full banner is double-wide, which is useful for demoing scrolling.
+      let widthpc = usableWidth / (SuggestionBanner.SUGGESTION_LIMIT / 2);
+      container.style.minWidth = widthpc + '%';
+
+      div.appendChild(container);
     }
 
     get suggestion(): Suggestion {
@@ -235,7 +253,7 @@ namespace com.keyman.osk {
 
     private updateText() {
       let display = this.generateSuggestionText();
-      this.div.replaceChild(display, this.display);
+      this.container.replaceChild(display, this.display);
       this.display = display;
     }
 
@@ -316,16 +334,18 @@ namespace com.keyman.osk {
    * Description  Display lexical model suggestions in the banner
    */
   export class SuggestionBanner extends Banner {
-    public static readonly SUGGESTION_LIMIT: number = 3;
+    public static readonly SUGGESTION_LIMIT: number = 6;
     public static readonly MARGIN = 1;
 
     private options : BannerSuggestion[];
     private hostDevice: utils.DeviceSpec;
 
     private manager: SuggestionManager;
+    private readonly container: HTMLElement;
 
     static readonly TOUCHED_CLASS: string = 'kmw-suggest-touched';
     static readonly BANNER_CLASS: string = 'kmw-suggest-banner';
+    static readonly BANNER_SCROLLER_CLASS = 'kmw-suggest-banner-scroller';
 
     constructor(hostDevice: utils.DeviceSpec, height?: number) {
       super(height || Banner.DEFAULT_HEIGHT);
@@ -333,7 +353,22 @@ namespace com.keyman.osk {
 
       this.getDiv().className = this.getDiv().className + ' ' + SuggestionBanner.BANNER_CLASS;
 
+      this.container = document.createElement('div');
+      this.container.className = SuggestionBanner.BANNER_SCROLLER_CLASS;
+      this.getDiv().appendChild(this.container);
+      // TODO:  additional styling for the banner scroll container?
+
+      this.buildOptions();
+
+      this.manager = new SuggestionManager(this.container, this.container, (suggestions) => this.updateOptions(suggestions));
+
+      this.setupInputHandling();
+    }
+
+    private buildOptions() {
       this.options = new Array();
+
+      const bannerElements = [] as Element[];
       for (var i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
         let d = new BannerSuggestion(i);
         this.options[i] = d;
@@ -350,24 +385,65 @@ namespace com.keyman.osk {
       let rtl = activeKeyboard && activeKeyboard.isRTL;
       for (var i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
         let indexToInsert = rtl ? SuggestionBanner.SUGGESTION_LIMIT - i -1 : i;
-        this.getDiv().appendChild(this.options[indexToInsert].div);
+        this.container.appendChild(this.options[indexToInsert].div);
 
-        if(i != SuggestionBanner.SUGGESTION_LIMIT) {
+        if(i != SuggestionBanner.SUGGESTION_LIMIT - 1) {
           // Adds a 'separator' div element for UI purposes.
           let separatorDiv = com.keyman.singleton.util._CreateElement('div');
           separatorDiv.className = 'kmw-banner-separator';
 
           let ds = separatorDiv.style;
-          ds.marginLeft = (SuggestionBanner.MARGIN / 2) + '%';
-          ds.marginRight = (SuggestionBanner.MARGIN / 2) + '%';
+          ds.marginLeft = `calc(${(SuggestionBanner.MARGIN / 2)}% - 0.5px)`;
+          ds.marginRight = `calc(${(SuggestionBanner.MARGIN / 2)}% - 0.5px)`;
 
-          this.getDiv().appendChild(separatorDiv);
+          this.container.appendChild(separatorDiv);
         }
       }
+    }
 
-      this.manager = new SuggestionManager(this.getDiv(), this.options);
+    private updateOptions(suggestions: Suggestion[]) {
+      const fontStyle = getComputedStyle(this.options[0].div);
+      const emSizeStr = getComputedStyle(document.body).fontSize;
+      const emSize = getFontSizeStyle(emSizeStr).val;
 
-      this.setupInputHandling();
+      const textStyle = getComputedStyle(this.options[0].container.firstChild as HTMLSpanElement);
+
+      // TODO:  polish up; do a calculation that leaves perfect, clean edges when displaying exactly three options.
+      const targetWidth = this.width / 3; // Not fancy; it'll leave rough edges. But... it'll do for a demo.
+      const textLeftPad = new ParsedLengthStyle(textStyle.paddingLeft || '2px');   // computedStyle will fail if the element's not in the DOM yet.
+      const textRightPad = new ParsedLengthStyle(textStyle.paddingRight || '2px');
+
+      const collapsedTargetWidth = targetWidth - textLeftPad.val - textRightPad.val;  // Assumes fixed px padding.
+
+      for (let i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
+        const d = this.options[i];
+        if(suggestions.length > i) {
+          d.container.style.transition = 'none'; // temporarily disable transition effects.
+
+          const suggestion = suggestions[i];
+          d.update(suggestion);
+
+          // Compute the raw text-width of the suggestion and determine specs for the default (collapsed) styling.
+          const optionCollapseStyle = d.container.style;
+
+          const rawMetrics = OSKKey.getTextMetrics(suggestion.displayAs, emSize, fontStyle);
+          const rawTextWidth = rawMetrics.width;
+          optionCollapseStyle.minWidth = `${targetWidth}px`;
+
+          if(rawTextWidth > collapsedTargetWidth) {
+            optionCollapseStyle.marginLeft = `${collapsedTargetWidth - rawTextWidth}px`;
+          } else {
+            optionCollapseStyle.marginLeft = '0px';
+          }
+
+          d.container.offsetWidth; // To 'flush' the changes before re-enabling transition animations.
+          d.container.offsetLeft;
+
+          d.container.style.transition = ''; // Re-enable them (it's set on the element's class)
+        } else {
+          d.update(null);
+        }
+      }
     }
 
     private setupInputHandling() {
@@ -446,8 +522,21 @@ namespace com.keyman.osk {
           if(util.hasClass(e,'kmw-suggest-option')) {
             return e as HTMLDivElement;
           }
-          if(e.parentNode && util.hasClass(<HTMLElement> e.parentNode,'kmw-suggest-option')) {
+
+          if(!e.parentNode) {
+            return null;
+          }
+
+          if(util.hasClass(<HTMLElement> e.parentNode, 'kmw-suggest-option')) {
             return e.parentNode as HTMLDivElement;
+          }
+
+          if(!e.parentNode.parentNode) {
+            return null;
+          }
+
+          if(util.hasClass(<HTMLElement> e.parentNode.parentNode, 'kmw-suggest-option')) {
+            return e.parentNode.parentNode as HTMLDivElement;
           }
           // if(e.firstChild && util.hasClass(<HTMLElement> e.firstChild,'kmw-suggest-option')) {
           //   return e.firstChild as HTMLDivElement;
@@ -494,6 +583,7 @@ namespace com.keyman.osk {
         // Implemented separately for native + embedded mode branches.
         // Embedded mode should pass any info needed to show a submenu IMMEDIATELY.
         this.platformHold(suggestionObj, isCustom); // No implementation yet for native.
+        return;
       }
     }
     protected clearHolds(): void {
@@ -535,7 +625,7 @@ namespace com.keyman.osk {
     //#endregion
     //#endregion
 
-    private options: BannerSuggestion[];
+    private optionUpdater: (suggestions: Suggestion[]) => void;
 
     private initNewContext: boolean = true;
 
@@ -551,10 +641,10 @@ namespace com.keyman.osk {
     private doRevert: boolean = false;
     private recentRevert: boolean = false;
 
-    constructor(div: HTMLElement, options: BannerSuggestion[]) {
+    constructor(div: HTMLElement, scroller: HTMLElement, optionUpdater: typeof SuggestionManager.prototype.optionUpdater) {
       // TODO:  Determine appropriate CSS styling names, etc.
-      super(div, Banner.BANNER_CLASS, SuggestionBanner.TOUCHED_CLASS);
-      this.options = options;
+      super(div, scroller, Banner.BANNER_CLASS, SuggestionBanner.TOUCHED_CLASS);
+      this.optionUpdater = optionUpdater;
     }
 
     private doAccept(suggestion: BannerSuggestion) {
@@ -663,9 +753,7 @@ namespace com.keyman.osk {
         }
       }
 
-      this.options.forEach((option: BannerSuggestion) => {
-        option.update(null);
-      });
+      this.optionUpdater([]);
     }.bind(this);
 
     public activateKeep(): boolean {
@@ -685,13 +773,7 @@ namespace com.keyman.osk {
 
       suggestions = suggestions.concat(this.currentSuggestions);
 
-      this.options.forEach((option: BannerSuggestion, i: number) => {
-        if(i < suggestions.length) {
-          option.update(suggestions[i]);
-        } else {
-          option.update(null);
-        }
-      });
+      this.optionUpdater(suggestions);
     }
 
     /**
