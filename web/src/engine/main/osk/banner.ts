@@ -418,6 +418,7 @@ namespace com.keyman.osk {
       for (let i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
         const d = this.options[i];
         if(suggestions.length > i) {
+          // TODO:  if the option is highlighted, maybe don't disable transitions?
           d.container.style.transition = 'none'; // temporarily disable transition effects.
 
           const suggestion = suggestions[i];
