@@ -174,10 +174,26 @@ namespace com.keyman.osk {
     }
   }
 
+  // TODO:  finalize + document
+  interface OptionFormatSpec {
+    minWidth?: number;
+    paddingWidth: number,
+    emSize: number,
+    styleForFont: CSSStyleDeclaration
+
+    collapsedWidth?: number
+  }
+
   export class BannerSuggestion {
     div: HTMLDivElement;
     container: HTMLDivElement;
     private display: HTMLSpanElement;
+
+    private _collapsedWidth: number;
+    private _textWidth: number;
+    private _minWidth: number;
+    private _paddingWidth: number;
+
     private fontFamily?: string;
 
     private _suggestion: Suggestion;
@@ -246,15 +262,94 @@ namespace com.keyman.osk {
      * @param {Suggestion} suggestion   Suggestion from the lexical model
      * Description  Update the ID and text of the BannerSuggestionSpec
      */
-    public update(suggestion: Suggestion) {
+    public update(suggestion: Suggestion, format: OptionFormatSpec) {
       this._suggestion = suggestion;
       this.updateText();
+
+      // Set internal properties for use in format calculations.
+      if(format.minWidth !== undefined) {
+        this._minWidth = format.minWidth;
+      }
+
+      this._paddingWidth = format.paddingWidth;
+      this._collapsedWidth = format.collapsedWidth;
+
+      if(suggestion && suggestion.displayAs) {
+        const rawMetrics = OSKKey.getTextMetrics(suggestion.displayAs, format.emSize, format.styleForFont);
+        this._textWidth = rawMetrics.width;
+      } else {
+        this._textWidth = 0;
+      }
+
+      this.updateLayout();
+    }
+
+    public updateLayout() {
+      if(!this.suggestion && this.index != 0) {
+        this.div.style.width='0px';
+        return;
+      } else {
+        this.div.style.width='';
+      }
+
+      // TODO:  if the option is highlighted, maybe don't disable transitions?
+      this.container.style.transition = 'none'; // temporarily disable transition effects.
+
+      const collapserStyle = this.container.style;
+      collapserStyle.minWidth = this.collapsedWidth + 'px';
+      collapserStyle.marginLeft = (this.collapsedWidth - this.expandedWidth) + 'px';
+
+      this.container.offsetWidth; // To 'flush' the changes before re-enabling transition animations.
+      this.container.offsetLeft;
+
+      this.container.style.transition = ''; // Re-enable them (it's set on the element's class)
     }
 
     private updateText() {
       let display = this.generateSuggestionText();
       this.container.replaceChild(display, this.display);
       this.display = display;
+    }
+
+    public get targetCollapsedWidth(): number {
+      return this._collapsedWidth;
+    }
+
+    public get textWidth(): number {
+      return this._textWidth;
+    }
+
+    public get paddingWidth(): number {
+      return this._paddingWidth;
+    }
+
+    public get minWidth(): number {
+      return this._minWidth;
+    }
+
+    public set minWidth(val: number) {
+      this._minWidth = val;
+    }
+
+    public get expandedWidth(): number {
+      // minWidth must be defined AND greater for the conditional to return this.minWidth.
+      return this.minWidth > this.spanWidth ? this.minWidth : this.spanWidth;
+    }
+
+    public get spanWidth(): number {
+      let spanWidth = this.textWidth ?? 0;
+      if(spanWidth) {
+        spanWidth += this.paddingWidth ?? 0;
+      }
+
+      return spanWidth;
+    }
+
+    public get collapsedWidth(): number {
+      let maxWidth = this.targetCollapsedWidth < this.expandedWidth ? this.targetCollapsedWidth : this.expandedWidth;
+
+      // Will return maxWidth if this.minWidth is undefined.
+      return (this.minWidth > maxWidth ? this.minWidth : maxWidth);
     }
 
     /**
@@ -338,6 +433,8 @@ namespace com.keyman.osk {
     public static readonly MARGIN = 1;
 
     private options : BannerSuggestion[];
+    private separators: HTMLElement[];
+
     private hostDevice: utils.DeviceSpec;
 
     private manager: SuggestionManager;
@@ -366,9 +463,9 @@ namespace com.keyman.osk {
     }
 
     private buildOptions() {
-      this.options = new Array();
+      this.options = [];
+      this.separators = [];
 
-      const bannerElements = [] as Element[];
       for (var i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
         let d = new BannerSuggestion(i);
         this.options[i] = d;
@@ -397,6 +494,7 @@ namespace com.keyman.osk {
           ds.marginRight = `calc(${(SuggestionBanner.MARGIN / 2)}% - 0.5px)`;
 
           this.container.appendChild(separatorDiv);
+          this.separators.push(separatorDiv);
         }
       }
     }
@@ -413,37 +511,49 @@ namespace com.keyman.osk {
       const textLeftPad = new ParsedLengthStyle(textStyle.paddingLeft || '2px');   // computedStyle will fail if the element's not in the DOM yet.
       const textRightPad = new ParsedLengthStyle(textStyle.paddingRight || '2px');
 
-      const collapsedTargetWidth = targetWidth - textLeftPad.val - textRightPad.val;  // Assumes fixed px padding.
+      let optionFormat: OptionFormatSpec = {
+        paddingWidth: textLeftPad.val + textRightPad.val, // Assumes fixed px padding.
+        emSize: emSize,
+        styleForFont: fontStyle,
+        collapsedWidth: targetWidth,
+        minWidth: 0,
+      }
+
+      let totalWidth = 0;
+      let displayCount = 0;
 
       for (let i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
         const d = this.options[i];
+
         if(suggestions.length > i) {
-          // TODO:  if the option is highlighted, maybe don't disable transitions?
-          d.container.style.transition = 'none'; // temporarily disable transition effects.
-
           const suggestion = suggestions[i];
-          d.update(suggestion);
+          d.update(suggestion, optionFormat);
 
-          // Compute the raw text-width of the suggestion and determine specs for the default (collapsed) styling.
-          const optionCollapseStyle = d.container.style;
-
-          const rawMetrics = OSKKey.getTextMetrics(suggestion.displayAs, emSize, fontStyle);
-          const rawTextWidth = rawMetrics.width;
-          optionCollapseStyle.minWidth = `${targetWidth}px`;
-
-          if(rawTextWidth > collapsedTargetWidth) {
-            optionCollapseStyle.marginLeft = `${collapsedTargetWidth - rawTextWidth}px`;
-          } else {
-            optionCollapseStyle.marginLeft = '0px';
-          }
-
-          d.container.offsetWidth; // To 'flush' the changes before re-enabling transition animations.
-          d.container.offsetLeft;
-
-          d.container.style.transition = ''; // Re-enable them (it's set on the element's class)
+          totalWidth += d.collapsedWidth;
+          displayCount++;
         } else {
-          d.update(null);
+          d.update(null, optionFormat);
         }
+      }
+
+      // Ensure one suggestion is always displayed, even if empty.  (Keep the separators out)
+      displayCount = displayCount || 1;
+
+      if(totalWidth < this.width) {
+        let separatorWidth = (this.width * 0.01 * (displayCount-1));
+        let fillPadding = (this.width - totalWidth - separatorWidth) / displayCount;
+
+        for(let i=0; i < displayCount; i++) {
+          const d = this.options[i];
+
+          d.minWidth = d.collapsedWidth + fillPadding;
+          d.updateLayout();
+        }
+      }
+
+      // Hide any separators beyond the final displayed suggestion
+      for(let i=0; i < SuggestionBanner.SUGGESTION_LIMIT - 1; i++) {
+        this.separators[i].style.display = i < displayCount - 1 ? '' : 'none';
       }
     }
 
