@@ -179,7 +179,8 @@ namespace com.keyman.osk {
     minWidth?: number;
     paddingWidth: number,
     emSize: number,
-    styleForFont: CSSStyleDeclaration
+    styleForFont: CSSStyleDeclaration,
+    rtl?: boolean,
 
     collapsedWidth?: number
   }
@@ -193,6 +194,7 @@ namespace com.keyman.osk {
     private _textWidth: number;
     private _minWidth: number;
     private _paddingWidth: number;
+    private _rtl: boolean = false;
 
     private fontFamily?: string;
 
@@ -297,7 +299,12 @@ namespace com.keyman.osk {
 
       const collapserStyle = this.container.style;
       collapserStyle.minWidth = this.collapsedWidth + 'px';
-      collapserStyle.marginLeft = (this.collapsedWidth - this.expandedWidth) + 'px';
+
+      if(this.rtl) {
+        collapserStyle.marginRight = (this.collapsedWidth - this.expandedWidth) + 'px';
+      } else {
+        collapserStyle.marginLeft  = (this.collapsedWidth - this.expandedWidth) + 'px';
+      }
 
       this.container.offsetWidth; // To 'flush' the changes before re-enabling transition animations.
       this.container.offsetLeft;
@@ -350,6 +357,14 @@ namespace com.keyman.osk {
 
       // Will return maxWidth if this.minWidth is undefined.
       return (this.minWidth > maxWidth ? this.minWidth : maxWidth);
+    }
+
+    public get rtl(): boolean {
+      return this._rtl;
+    }
+
+    private set rtl(val: boolean) {
+      this._rtl = val;
     }
 
     /**
@@ -409,8 +424,8 @@ namespace com.keyman.osk {
       } else {
         // Default the LTR ordering to match that of the active keyboard.
         let activeKeyboard = keyman.core.activeKeyboard;
-        let rtl = activeKeyboard && activeKeyboard.isRTL;
-        let orderCode = rtl ? 0x202e /* RTL */ : 0x202d /* LTR */;
+        this.rtl = activeKeyboard && activeKeyboard.isRTL;
+        let orderCode = this.rtl ? 0x202e /* RTL */ : 0x202d /* LTR */;
         suggestionText = String.fromCharCode(orderCode) + suggestion.displayAs;
       }
 
@@ -506,6 +521,9 @@ namespace com.keyman.osk {
 
       const textStyle = getComputedStyle(this.options[0].container.firstChild as HTMLSpanElement);
 
+      let activeKeyboard = com.keyman.singleton.core.activeKeyboard;
+      let rtl = activeKeyboard && activeKeyboard.isRTL;
+
       // TODO:  polish up; do a calculation that leaves perfect, clean edges when displaying exactly three options.
       const targetWidth = this.width / 3; // Not fancy; it'll leave rough edges. But... it'll do for a demo.
       const textLeftPad = new ParsedLengthStyle(textStyle.paddingLeft || '2px');   // computedStyle will fail if the element's not in the DOM yet.
@@ -517,6 +535,7 @@ namespace com.keyman.osk {
         styleForFont: fontStyle,
         collapsedWidth: targetWidth,
         minWidth: 0,
+        rtl: rtl
       }
 
       let totalWidth = 0;
