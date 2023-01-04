@@ -359,6 +359,20 @@ namespace com.keyman.osk {
       return (this.minWidth > maxWidth ? this.minWidth : maxWidth);
     }
 
+    public get currentWidth(): number {
+      return this.div.offsetWidth;
+    }
+
+    public set currentWidth(val: number) {
+      // TODO:  probably should set up errors or something here...
+      if(val < this.collapsedWidth) {
+        val = this.collapsedWidth;
+      } else if(val > this.expandedWidth) {
+        val = this.expandedWidth;
+      }
+      this.container.style.marginLeft = `${val - this.expandedWidth}px`;
+    }
+
     public get rtl(): boolean {
       return this._rtl;
     }
@@ -511,6 +525,11 @@ namespace com.keyman.osk {
           this.container.appendChild(separatorDiv);
           this.separators.push(separatorDiv);
         }
+
+        // RTL should start right-aligned, thus @ max scroll.
+        if(rtl) {
+          this.container.scrollLeft = this.container.scrollWidth;
+        }
       }
     }
 
@@ -637,6 +656,169 @@ namespace com.keyman.osk {
     }
   }
 
+  class SuggestionExpandContractAnimation {
+    private scrollContainer: HTMLElement | null;
+    private option: BannerSuggestion;
+
+    private collapsedScrollLeft: number;
+
+    private startTimestamp: number;
+    private pendingAnimation: number;
+
+    private static TRANSITION_TIME = 250; // in ms.
+
+    constructor(scrollContainer: HTMLElement, option: BannerSuggestion, forRTL: boolean) {
+      this.scrollContainer = scrollContainer;
+      this.option = option;
+      this.collapsedScrollLeft = scrollContainer.scrollLeft;
+    }
+
+    public setBaseScroll(val: number) {
+      this.collapsedScrollLeft = val;
+
+      // Attempt to sync the banner-scroller's offset update with that of the
+      // animation for expansion and collapsing.
+      window.requestAnimationFrame(this.setOffsetScroll);
+
+      // this.setOffsetScroll();
+    }
+
+    // the "fun", top-level banner part.
+    private setOffsetScroll = () => {
+      // If we've been 'decoupled', a different instance (likely for a different suggestion)
+      // is responsible for counter-scrolling.
+      if(!this.scrollContainer) {
+        return;
+      }
+      const baseScrollOffset = this.option.currentWidth - this.option.collapsedWidth;
+
+      // TODO:  clamping logic
+
+      let finalTargetScrollLeft = this.collapsedScrollLeft + baseScrollOffset;
+      this.scrollContainer.scrollLeft = finalTargetScrollLeft;
+
+      // Prevent "jitters" during counterscroll that occur on expansion / collapse animation.
+      // A one-frame "error correction" effect at the end of animation is far less jarring.
+      if(this.pendingAnimation) {
+        // scrollLeft doesn't work well with fractional values, unlike marginLeft / marginRight
+        let fractionalOffset = this.scrollContainer.scrollLeft - finalTargetScrollLeft
+        // So we put the fractional difference into marginLeft to force it to sync.
+        this.option.currentWidth += fractionalOffset;
+      }
+    }
+
+    public decouple() {
+      this.scrollContainer = null;
+    }
+
+    private clear() {
+      this.startTimestamp = null;
+      window.cancelAnimationFrame(this.pendingAnimation);
+      this.pendingAnimation = null;
+    }
+
+    public expand() {
+      // Cancel any prior iterating animation-frame commands.
+      this.clear();
+
+      // set timestamp, adjusting the current time based on intermediate progress
+      this.startTimestamp = performance.now();
+
+      let progress = this.option.currentWidth - this.option.collapsedWidth;
+      let expansionDiff = this.option.expandedWidth - this.option.collapsedWidth;
+
+      if(progress != 0) {
+        // Offset the timestamp by noting what start time would have given rise to
+        // the current position, keeping related animations smooth.
+        this.startTimestamp -= (progress / expansionDiff) * SuggestionExpandContractAnimation.TRANSITION_TIME;
+      }
+
+      this.pendingAnimation = window.requestAnimationFrame(this._expand);
+    }
+
+    private _expand = (timestamp: number) => {
+      if(this.startTimestamp === undefined) {
+        return; // No active expand op exists.  May have been cancelled via `clear`.
+      }
+
+      let progressTime = timestamp - this.startTimestamp;
+      let fin = progressTime > SuggestionExpandContractAnimation.TRANSITION_TIME;
+
+      if(fin) {
+        progressTime = SuggestionExpandContractAnimation.TRANSITION_TIME;
+      }
+
+      // -- Part 1:  handle option expand / collapse state --
+      let expansionDiff = this.option.expandedWidth - this.option.collapsedWidth;
+      let expansionRatio = progressTime / SuggestionExpandContractAnimation.TRANSITION_TIME;
+
+      // expansionDiff * expansionRatio:  the total adjustment from 'collapsed' width, in px.
+      const expansionPx = expansionDiff * expansionRatio;
+      this.option.currentWidth = expansionPx + this.option.collapsedWidth;
+
+      // Part 2:  trigger the next animation frame.
+      if(!fin) {
+        this.pendingAnimation = window.requestAnimationFrame(this._expand);
+      } else {
+        this.clear();
+      }
+
+      // Part 3:  perform any needed counter-scrolling, scroll clamping, etc
+      // Existence of a followup animation frame is part of the logic, so keep this 'after'!
+      this.setOffsetScroll();
+    };
+
+    public collapse() {
+      // Cancel any prior iterating animation-frame commands.
+      this.clear();
+
+      // set timestamp, adjusting the current time based on intermediate progress
+      this.startTimestamp = performance.now();
+
+      let progress = this.option.expandedWidth - this.option.currentWidth;
+      let expansionDiff = this.option.expandedWidth - this.option.collapsedWidth;
+
+      if(progress != 0) {
+        // Offset the timestamp by noting what start time would have given rise to
+        // the current position, keeping related animations smooth.
+        this.startTimestamp -= (progress / expansionDiff) * SuggestionExpandContractAnimation.TRANSITION_TIME;
+      }
+
+      this.pendingAnimation = window.requestAnimationFrame(this._collapse);
+    }
+
+    private _collapse = (timestamp: number) => {
+      if(this.startTimestamp === undefined) {
+        return; // No active collapse op exists.  May have been cancelled via `clear`.
+      }
+
+      let progressTime = timestamp - this.startTimestamp;
+      let fin = progressTime > SuggestionExpandContractAnimation.TRANSITION_TIME;
+      if(fin) {
+        progressTime = SuggestionExpandContractAnimation.TRANSITION_TIME;
+      }
+
+      // -- Part 1:  handle option expand / collapse state --
+      let expansionDiff = this.option.expandedWidth - this.option.collapsedWidth;
+      let expansionRatio = 1 - progressTime / SuggestionExpandContractAnimation.TRANSITION_TIME;
+
+      // expansionDiff * expansionRatio:  the total adjustment from 'collapsed' width, in px.
+      const expansionPx = expansionDiff * expansionRatio;
+      this.option.currentWidth = expansionPx + this.option.collapsedWidth;
+
+      // Part 2:  trigger the next animation frame.
+      if(!fin) {
+        this.pendingAnimation = window.requestAnimationFrame(this._collapse);
+      } else {
+        this.clear();
+      }
+
+      // Part 3:  perform any needed counter-scrolling, scroll clamping, etc
+      // Existence of a followup animation frame is part of the logic, so keep this 'after'!
+      this.setOffsetScroll();
+    };
+  }
+
   export class SuggestionManager extends UITouchHandlerBase<HTMLDivElement> {
     private selected: BannerSuggestion;
 
@@ -676,15 +858,26 @@ namespace com.keyman.osk {
       return null;
     }
 
+    protected onScrollLeftUpdate(val: number): void {
+      if(this.highlightAnimation) {
+        this.highlightAnimation.setBaseScroll(val);
+      } else {
+        super.onScrollLeftUpdate(val);
+      }
+    }
+
     protected highlight(t: HTMLDivElement, on: boolean): void {
       let classes = t.className;
       let cs = ' ' + SuggestionBanner.TOUCHED_CLASS;
+      let suggestion: BannerSuggestion;
 
       if(t.id.indexOf(BannerSuggestion.BASE_ID) == -1) {
         console.warn("Cannot find BannerSuggestion object for element to highlight!");
       } else {
         // Never highlight an empty suggestion button.
-        let suggestion = this.selected = t['suggestion'] as BannerSuggestion;
+        this.selected = t['suggestion'] as BannerSuggestion;
+        suggestion = this.selected;
+
         if(suggestion.isEmpty()) {
           on = false;
           this.selected = null;
@@ -693,8 +886,18 @@ namespace com.keyman.osk {
 
       if(on && classes.indexOf(cs) < 0) {
         t.className=classes+cs;
+        if(this.highlightAnimation) {
+          this.highlightAnimation.decouple();
+        }
+
+        this.highlightAnimation = new SuggestionExpandContractAnimation(this.topScroller, suggestion, false);
+        this.highlightAnimation.expand();
       } else {
         t.className=classes.replace(cs,'');
+        if(!this.highlightAnimation) {
+          this.highlightAnimation = new SuggestionExpandContractAnimation(this.topScroller, suggestion, false);
+        }
+        this.highlightAnimation.collapse();
       }
     }
 
@@ -771,10 +974,14 @@ namespace com.keyman.osk {
     private doRevert: boolean = false;
     private recentRevert: boolean = false;
 
+    private readonly topScroller: HTMLElement;
+    private highlightAnimation: SuggestionExpandContractAnimation;
+
     constructor(div: HTMLElement, scroller: HTMLElement, optionUpdater: typeof SuggestionManager.prototype.optionUpdater) {
       // TODO:  Determine appropriate CSS styling names, etc.
       super(div, scroller, Banner.BANNER_CLASS, SuggestionBanner.TOUCHED_CLASS);
       this.optionUpdater = optionUpdater;
+      this.topScroller = scroller;
     }
 
     private doAccept(suggestion: BannerSuggestion) {
