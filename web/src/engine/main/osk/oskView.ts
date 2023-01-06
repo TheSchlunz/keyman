@@ -481,7 +481,7 @@ namespace com.keyman.osk {
       if(!pending) {
         this.headerView?.refreshLayout();
         this.bannerView.width = this.computedWidth;
-        this.bannerView.refreshLayout(); // TODO:  pass computed width.
+        this.bannerView.refreshLayout();
         this.footerView?.refreshLayout();
       }
 
