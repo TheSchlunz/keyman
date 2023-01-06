@@ -245,10 +245,9 @@ namespace com.keyman.osk {
       container.className = "kmw-suggestion-container";
 
       // Ensures that a reasonable default width, based on % is set. (Since it's not yet in the DOM, we may not yet have actual width info.)
-      let usableWidth = 100 - SuggestionBanner.MARGIN * (SuggestionBanner.SUGGESTION_LIMIT - 1);
+      let usableWidth = 100 - SuggestionBanner.MARGIN * (SuggestionBanner.LONG_SUGGESTION_DISPLAY_LIMIT - 1);
 
-      // The `/ 2` part:  Ensures that the full banner is double-wide, which is useful for demoing scrolling.
-      let widthpc = usableWidth / (SuggestionBanner.SUGGESTION_LIMIT / 2);
+      let widthpc = usableWidth / (SuggestionBanner.LONG_SUGGESTION_DISPLAY_LIMIT);
       container.style.minWidth = widthpc + '%';
 
       div.appendChild(container);
@@ -353,7 +352,10 @@ namespace com.keyman.osk {
     }
 
     public get collapsedWidth(): number {
-      let maxWidth = this.targetCollapsedWidth < this.expandedWidth ? this.targetCollapsedWidth : this.expandedWidth;
+      // Allow shrinking a suggestion's width if it has excess whitespace.
+      let utilizedWidth = this.spanWidth < this.targetCollapsedWidth ? this.spanWidth : this.targetCollapsedWidth;
+      // If a minimum width has been specified, enforce that minimum.
+      let maxWidth = utilizedWidth < this.expandedWidth ? utilizedWidth : this.expandedWidth;
 
       // Will return maxWidth if this.minWidth is undefined.
       return (this.minWidth > maxWidth ? this.minWidth : maxWidth);
@@ -463,7 +465,8 @@ namespace com.keyman.osk {
    * Description  Display lexical model suggestions in the banner
    */
   export class SuggestionBanner extends Banner {
-    public static readonly SUGGESTION_LIMIT: number = 6;
+    public static readonly SUGGESTION_LIMIT: number = 8;
+    public static readonly LONG_SUGGESTION_DISPLAY_LIMIT: number = 3;
     public static readonly MARGIN = 1;
 
     private options : BannerSuggestion[];
@@ -515,7 +518,7 @@ namespace com.keyman.osk {
       let activeKeyboard = com.keyman.singleton.core.activeKeyboard;
       let rtl = activeKeyboard && activeKeyboard.isRTL;
       for (var i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
-        let indexToInsert = rtl ? SuggestionBanner.SUGGESTION_LIMIT - i -1 : i;
+        let indexToInsert = rtl ? SuggestionBanner.SUGGESTION_LIMIT - i - 1 : i;
         this.container.appendChild(this.options[indexToInsert].div);
 
         if(i != SuggestionBanner.SUGGESTION_LIMIT - 1) {
@@ -548,8 +551,7 @@ namespace com.keyman.osk {
       let activeKeyboard = com.keyman.singleton.core.activeKeyboard;
       let rtl = activeKeyboard && activeKeyboard.isRTL;
 
-      // TODO:  polish up; do a calculation that leaves perfect, clean edges when displaying exactly three options.
-      const targetWidth = this.width / 3; // Not fancy; it'll leave rough edges. But... it'll do for a demo.
+      const targetWidth = this.width / SuggestionBanner.LONG_SUGGESTION_DISPLAY_LIMIT;
       const textLeftPad = new ParsedLengthStyle(textStyle.paddingLeft || '2px');   // computedStyle will fail if the element's not in the DOM yet.
       const textRightPad = new ParsedLengthStyle(textStyle.paddingRight || '2px');
 
@@ -565,12 +567,17 @@ namespace com.keyman.osk {
       let totalWidth = 0;
       let displayCount = 0;
 
+      let collapsedOptions: BannerSuggestion[] = [];
+
       for (let i=0; i<SuggestionBanner.SUGGESTION_LIMIT; i++) {
         const d = this.options[i];
 
         if(suggestions.length > i) {
           const suggestion = suggestions[i];
           d.update(suggestion, optionFormat);
+          if(d.collapsedWidth < d.expandedWidth) {
+            collapsedOptions.push(d);
+          }
 
           totalWidth += d.collapsedWidth;
           displayCount++;
@@ -584,6 +591,29 @@ namespace com.keyman.osk {
 
       if(totalWidth < this.width) {
         let separatorWidth = (this.width * 0.01 * (displayCount-1));
+
+        // Prioritize adding padding to suggestions that actually need it.
+        // Use equal measure for each so long as it still could use extra display space.
+        while(totalWidth < this.width && collapsedOptions.length > 0) {
+          let maxFillPadding = (this.width - totalWidth - separatorWidth) / collapsedOptions.length;
+          collapsedOptions.sort((a, b) => a.expandedWidth - b.expandedWidth);
+
+          let shortestCollapsed = collapsedOptions[0];
+          let neededWidth = shortestCollapsed.expandedWidth - shortestCollapsed.collapsedWidth;
+
+          let padding = Math.min(neededWidth, maxFillPadding);
+
+          // Check: it is possible that two elements were matched for equal length, thus the second loop's takes no additional padding.
+          // No need to trigger re-layout ops for that case.
+          if(padding > 0) {
+            collapsedOptions.forEach((a) => a.minWidth = a.collapsedWidth + padding);
+            totalWidth += padding * collapsedOptions.length;  // don't forget to record that we added the padding!
+          }
+
+          collapsedOptions.splice(0, 1);  // discard the element we based our judgment upon; we need not consider it any longer.
+        }
+
+        // If there's STILL leftover padding to distribute, let's do that now.
         let fillPadding = (this.width - totalWidth - separatorWidth) / displayCount;
 
         for(let i=0; i < displayCount; i++) {
