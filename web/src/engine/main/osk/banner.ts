@@ -990,6 +990,7 @@ namespace com.keyman.osk {
           this.highlightAnimation = new SuggestionExpandContractAnimation(this.topScroller, suggestion, false);
         }
         this.highlightAnimation.collapse();
+        this.selected = null;
       }
     }
 
